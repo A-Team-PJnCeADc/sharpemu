@@ -64,6 +64,8 @@ internal static unsafe partial class VulkanVideoPresenter
         public Format Format;
         public Image Image;
         public DeviceMemory Memory;
+        // Made by CreateGuestFlipSnapshot: its image goes back to the snapshot pool.
+        public bool FromSnapshotPool;
     }
 
     // A cached color target bound to one draw or resolve.
@@ -1011,7 +1013,7 @@ internal static unsafe partial class VulkanVideoPresenter
             }
         }
 
-        private (VkBuffer Buffer, DeviceMemory Memory) CreateTextureStagingBuffer(byte[] pixels, string debugName)
+        private (VkBuffer Buffer, DeviceMemory Memory) CreateTextureStagingBuffer(ReadOnlySpan<byte> pixels, string debugName)
         {
             var buffer = CreateHostBuffer(pixels, BufferUsageFlags.TransferSrcBit, out var memory, out _);
             SetDebugName(ObjectType.Buffer, buffer.Handle, debugName);
@@ -1109,6 +1111,13 @@ internal static unsafe partial class VulkanVideoPresenter
 
         private void DestroyGuestImage(GuestImageResource resource)
         {
+            if (resource.FromSnapshotPool && resource.Image.Handle != 0 && ReturnFlipSnapshot(resource))
+            {
+                resource.Image = default;
+                resource.Memory = default;
+                return;
+            }
+
             if (resource.Image.Handle != 0)
             {
                 _vk.DestroyImage(_device, resource.Image, null);
